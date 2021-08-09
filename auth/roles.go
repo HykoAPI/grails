@@ -1,3 +1,3 @@
-package roles
+package auth
 
 type Role string
