@@ -5,7 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-
+	"os"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -69,4 +70,36 @@ func AugmentWithStatusCode(message string, err error, statusCode int) *ResponseE
 
 func Augment(message string, err error) error {
 	return errors.New(fmt.Sprintf(message+": %v", err))
+}
+
+func originValid(origin string) bool {
+	corsOrigins := strings.Split(os.Getenv("CORS_ORIGINS"), ",")
+	for _, o := range corsOrigins {
+		if o == origin {
+			return true
+		}
+	}
+	return false
+}
+
+func CORS(handler func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !originValid(r.Header.Get("Origin")) {
+			http.Error(w, "Invalid Origin", http.StatusUnauthorized)
+			return
+		}
+
+		(w).Header().Set("Access-Control-Allow-Origin", r.Header.Get("Origin"))
+		(w).Header().Set("Access-Control-Allow-Credentials", "true")
+		(w).Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE") // TODO: have this read from the handler some how?
+		(w).Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		// Based off: https://www.html5rocks.com/static/images/cors_server_flowchart.png
+		accessControlRequestMethod := r.Header.Values("Access-Control-Request-Method")
+		if r.Method == "OPTIONS" && len(accessControlRequestMethod) != 0 {
+			// This means it is a preflight request sent from a browser so we can just return
+			return
+		}
+
+		handler(w, r)
+	}
 }
