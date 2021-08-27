@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/HykoAPI/grails/errhelpers"
 	"net/http"
 	"os"
 	"strings"
-
+	"time"
+	"gopkg.in/square/go-jose.v2/jwt"
 	"gorm.io/gorm"
 )
 
@@ -103,3 +105,75 @@ func CORS(handler func(w http.ResponseWriter, r *http.Request)) func(w http.Resp
 		handler(w, r)
 	}
 }
+
+
+type Claims struct {
+	UserID uint `json:"user_id"`
+	jwt.Claims
+}
+
+type User interface {
+	GetRole() string
+}
+
+var jwtKey = getJWTSigningKey()
+
+func getJWTSigningKey() []byte {
+	if os.Getenv("ENVIRONMENT") == "" {
+		return []byte("LOCAL_MOCK_JWT_SIGNING_KEY")
+	}
+
+	key := os.Getenv("JWT_SIGNING_KEY")
+	if key == "" {
+		// Without this we can issue tokens or verify them so we shouldn't be running
+		panic("JWT Signing key not found")
+	}
+	return []byte(key)
+}
+
+func ProtectedRoute(db *gorm.DB, fetchUser func(*gorm.DB, uint) (User, error), roles []Role, handler func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tokenString := r.Header.Get("Authorization")
+		claims := &Claims{}
+		parsedJWT, err := jwt.ParseSigned(tokenString)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		err = parsedJWT.Claims(jwtKey, claims)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		// Get user
+		user, err := fetchUser(db, claims.UserID)
+		if err != nil {
+			http.Error(w, errhelpers.Augment("error getting user by id", err).Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Check roles
+		hasRole := false
+		for _, r := range roles {
+			if string(r) == user.GetRole() {
+				hasRole = true
+				break
+			}
+		}
+
+		if !hasRole {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		if claims.Expiry.Time().Before(time.Now().UTC()) {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+
+		handler(w, r)
+	}
+}
+
+type Middleware func(func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request)
