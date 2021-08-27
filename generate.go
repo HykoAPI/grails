@@ -1,4 +1,4 @@
-package main
+package grails
 
 const serverTemplate = `
 package webserver

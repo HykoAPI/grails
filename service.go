@@ -1,4 +1,4 @@
-package main
+package grails
 
 import (
 	"encoding/json"
