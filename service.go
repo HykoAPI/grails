@@ -208,3 +208,25 @@ func IssueAuthToken(userID uint) (string, error) {
 
 	return token, nil
 }
+
+func GetUserFromRequest(db *gorm.DB, r *http.Request, fetchUser func(*gorm.DB, uint) (User, error)) func(db *gorm.DB, r *http.Request)(User, error) {
+	return func(db *gorm.DB, r *http.Request) (User, error) {
+		tokenString := r.Header.Get("Authorization")
+		claims := &Claims{}
+		parsedJWT, err := jwt.ParseSigned(tokenString)
+		if err != nil {
+			return nil, err
+		}
+		err = parsedJWT.Claims(jwtKey, claims)
+		if err != nil {
+			return nil, err
+		}
+
+		user, err := fetchUser(db, claims.UserID)
+		if err != nil {
+			return nil, err
+		}
+		return user, nil
+	}
+
+}
