@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"gopkg.in/square/go-jose.v2"
 	"gopkg.in/square/go-jose.v2/jwt"
 	"gorm.io/gorm"
 )
@@ -177,3 +178,33 @@ func ProtectedRoute(db *gorm.DB, fetchUser func(*gorm.DB, uint) (User, error), r
 }
 
 type Middleware func(func(w http.ResponseWriter, r *http.Request)) func(w http.ResponseWriter, r *http.Request)
+
+const TOKEN_DURATION_IN_MINUTES = 5 * time.Minute
+
+func IssueAuthToken(userID uint) (string, error) {
+	// Create the JWT claims, which includes the username and expiry time
+	claims := &Claims{
+		UserID: userID,
+		Claims: jwt.Claims{
+			Expiry: jwt.NewNumericDate(time.Now().UTC().Add(TOKEN_DURATION_IN_MINUTES)),
+		},
+	}
+
+	var signerOpts = jose.SignerOptions{}
+	signerOpts.WithType("JWT")
+	signingKey := jose.SigningKey{
+		Algorithm: jose.HS256,
+		Key:       jwtKey,
+	}
+	jwtSigner, err := jose.NewSigner(signingKey, &signerOpts)
+	if err != nil {
+		return "", err
+	}
+	builder := jwt.Signed(jwtSigner).Claims(claims)
+	token, err := builder.CompactSerialize()
+	if err != nil {
+		return "", err
+	}
+
+	return token, nil
+}
